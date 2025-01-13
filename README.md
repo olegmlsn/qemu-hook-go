@@ -8,7 +8,7 @@ between the host and guest machines
 
 ### How to Use
 
-Create the config.ini file: Place the configuration file in the /etc/libvirt/hooks/ directory. 
+Create the `config.ini` file: Place the configuration file in the `/etc/libvirt/hooks/` directory. 
 Example:
 ```ini
 [DEFAULT]
@@ -33,7 +33,6 @@ chmod +x /etc/libvirt/hooks/qemu
 ```
 
 When a virtual machine starts, stops, or restarts, libvirt will automatically invoke the hook.
-chmod +x /etc/libvirt/hooks/qemu
 
 ### Note
 A Linux x64 compiled file is available in the Releases section.
