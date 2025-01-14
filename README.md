@@ -8,20 +8,32 @@ between the host and guest machines
 
 ### How to Use
 
-Create the `config.ini` file: Place the configuration file in the `/etc/libvirt/hooks/` directory. 
+Create the `config.yaml` file: Place the configuration file in the `/etc/libvirt/hooks/` directory. 
 Example:
-```ini
-[DEFAULT]
-host_ip = 192.168.1.1
+```yaml
+default:
+  host_ip: 192.168.1.1
 
-[VM1]
-;; GUEST_IP:GUEST_PORT->HOST_PORT|allow:ALLOWED_IP|protocol:tcp or udp
-rule1 = 192.168.122.224:443->443
-rule2 = 192.168.122.224:69->2269|protocol:udp
-rule1 = 192.168.122.224:5060->5060|allow:192.168.0.100|protocol:udp
+vms:
+  - name: VM1
+    rules:
+      - guest_ip: 192.168.122.224
+        guest_ports: "443"
+        host_ports: "443"
+        allow: 192.168.0.0/24
+        protocol: tcp
+      - guest_ip: 192.168.122.224
+        guest_ports: "80:100"
+        host_ports: "8080:8090"
+        protocol: udp
 
-[VM2]
-rule1 = 192.168.122.225:22->2222|allow:192.168.0.0/24
+  - name: VM2
+    rules:
+      - guest_ip: 192.168.122.225
+        guest_ports: "22"
+        host_ports: "2222"
+        allow: 192.168.0.100
+        protocol: tcp
 ```
 
 Install the QEMU hook: Place the compiled script in the libvirt hooks directory:

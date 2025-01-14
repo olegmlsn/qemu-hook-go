@@ -4,12 +4,29 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
-	"gopkg.in/ini.v1"
+	"gopkg.in/yaml.v3"
 )
 
-const cfgFile = "/etc/libvirt/hooks/config.ini"
+type Config struct {
+	Default struct {
+		HostIP string `yaml:"host_ip"`
+	} `yaml:"default"`
+	VMs []VM `yaml:"vms"`
+}
+
+type VM struct {
+	Name  string `yaml:"name"`
+	Rules []Rule `yaml:"rules"`
+}
+
+type Rule struct {
+	GuestIP    string `yaml:"guest_ip"`
+	GuestPorts string `yaml:"guest_ports"`
+	HostPorts  string `yaml:"host_ports"`
+	Allow      string `yaml:"allow,omitempty"`
+	Protocol   string `yaml:"protocol"`
+}
 
 func main() {
 	if len(os.Args) < 3 {
@@ -20,115 +37,62 @@ func main() {
 	vmName := os.Args[1]
 	action := os.Args[2]
 
-	hostIP, config, err := parseINIConfig(cfgFile)
+	config, err := loadYAMLConfig("config.yaml")
 	if err != nil {
-		fmt.Printf("Error reading config.ini file: %v\n", err)
+		fmt.Printf("Error loading YAML config: %v\n", err)
 		return
 	}
 
-	entries, ok := config[vmName]
-	if !ok {
-		fmt.Printf("VM '%s' not found in config.ini file\n", vmName)
-		return
-	}
-
-	for _, entry := range entries {
-		guestIP, guestPort, hostPort, allow, protocol, err := parseRule(entry)
-		if err != nil {
-			fmt.Printf("Invalid rule '%s': %v\n", entry, err)
-			continue
+	hostIP := config.Default.HostIP
+	var vm *VM
+	for _, v := range config.VMs {
+		if v.Name == vmName {
+			vm = &v
+			break
 		}
+	}
 
+	if vm == nil {
+		fmt.Printf("VM '%s' not found in config\n", vmName)
+		return
+	}
+
+	for _, rule := range vm.Rules {
 		switch action {
 		case "stopped":
-			removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
+			removeIptablesRule(hostIP, rule)
 		case "start":
-			addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
+			addIptablesRule(hostIP, rule)
 		case "reconnect":
-			removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
-			addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
+			removeIptablesRule(hostIP, rule)
+			addIptablesRule(hostIP, rule)
 		default:
 			fmt.Printf("Invalid action: %s\n", action)
 		}
 	}
 }
 
-func parseINIConfig(path string) (string, map[string][]string, error) {
-	cfg, err := ini.Load(path)
+func loadYAMLConfig(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
-	hostIP := cfg.Section("DEFAULT").Key("host_ip").String()
-	if hostIP == "" {
-		return "", nil, fmt.Errorf("host_ip not found in DEFAULT section")
+	var config Config
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return nil, err
 	}
-
-	config := make(map[string][]string)
-	for _, section := range cfg.Sections() {
-		if section.Name() == "DEFAULT" {
-			continue
-		}
-		for _, key := range section.Keys() {
-			config[section.Name()] = append(config[section.Name()], key.Value())
-		}
-	}
-
-	return hostIP, config, nil
+	return &config, nil
 }
 
-func parseRule(rule string) (guestIP, guestPort, hostPort, allow, protocol string, err error) {
-	parts := strings.Split(rule, "|")
-	rulePart := parts[0]
-
-	guestIP, guestPort, hostPort, err = parseCoreRule(rulePart)
-	if err != nil {
-		return "", "", "", "", "", err
-	}
-
-	for _, option := range parts[1:] {
-		if strings.HasPrefix(option, "allow:") {
-			allow = strings.TrimPrefix(option, "allow:")
-		} else if strings.HasPrefix(option, "protocol:") {
-			protocol = strings.TrimPrefix(option, "protocol:")
-		}
-	}
-
-	if protocol == "" {
-		protocol = "tcp"
-	}
-
-	return guestIP, guestPort, hostPort, allow, protocol, nil
-}
-
-func parseCoreRule(rule string) (guestIP, guestPort, hostPort string, err error) {
-	parts := strings.Split(rule, "->")
-	if len(parts) != 2 {
-		return "", "", "", fmt.Errorf("invalid format, expected 'IP:PORT->PORT'")
-	}
-
-	guestPart := parts[0]
-	hostPort = parts[1]
-
-	guestParts := strings.Split(guestPart, ":")
-	if len(guestParts) != 2 {
-		return "", "", "", fmt.Errorf("invalid guest format, expected 'IP:PORT'")
-	}
-
-	guestIP = guestParts[0]
-	guestPort = guestParts[1]
-
-	return guestIP, guestPort, hostPort, nil
-}
-
-func addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol string) {
+func addIptablesRule(hostIP string, rule Rule) {
 	commands := [][]string{
-		{"-I", "FORWARD", "-o", "virbr0", "-p", protocol, "-d", guestIP, "--dport", guestPort, "-j", "ACCEPT"},
-		{"-t", "nat", "-I", "PREROUTING", "-p", protocol, "-d", hostIP, "--dport", hostPort, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", guestIP, guestPort)},
+		{"-I", "FORWARD", "-o", "virbr0", "-p", rule.Protocol, "-d", rule.GuestIP, "--dport", rule.GuestPorts, "-j", "ACCEPT"},
+		{"-t", "nat", "-I", "PREROUTING", "-p", rule.Protocol, "-d", hostIP, "--dport", rule.HostPorts, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", rule.GuestIP, rule.GuestPorts)},
 	}
 
-	if allow != "" {
-		commands[0] = append(commands[0], "-s", allow)
+	if rule.Allow != "" {
+		commands[0] = append(commands[0], "-s", rule.Allow)
 	}
 
 	for _, cmd := range commands {
@@ -138,14 +102,14 @@ func addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol strin
 	}
 }
 
-func removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol string) {
+func removeIptablesRule(hostIP string, rule Rule) {
 	commands := [][]string{
-		{"-D", "FORWARD", "-o", "virbr0", "-p", protocol, "-d", guestIP, "--dport", guestPort, "-j", "ACCEPT"},
-		{"-t", "nat", "-D", "PREROUTING", "-p", protocol, "-d", hostIP, "--dport", hostPort, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", guestIP, guestPort)},
+		{"-D", "FORWARD", "-o", "virbr0", "-p", rule.Protocol, "-d", rule.GuestIP, "--dport", rule.GuestPorts, "-j", "ACCEPT"},
+		{"-t", "nat", "-D", "PREROUTING", "-p", rule.Protocol, "-d", hostIP, "--dport", rule.HostPorts, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", rule.GuestIP, rule.GuestPorts)},
 	}
 
-	if allow != "" {
-		commands[0] = append(commands[0], "-s", allow)
+	if rule.Allow != "" {
+		commands[0] = append(commands[0], "-s", rule.Allow)
 	}
 
 	for _, cmd := range commands {

@@ -1,0 +1,23 @@
+default:
+  host_ip: 192.168.1.1
+
+vms:
+  - name: VM1
+    rules:
+      - guest_ip: 192.168.122.224
+        guest_ports: "443"
+        host_ports: "443"
+        allow: 192.168.0.0/24
+        protocol: tcp
+      - guest_ip: 192.168.122.224
+        guest_ports: "80:100"
+        host_ports: "8080:8090"
+        protocol: udp
+
+  - name: VM2
+    rules:
+      - guest_ip: 192.168.122.225
+        guest_ports: "22"
+        host_ports: "2222"
+        allow: 192.168.0.100
+        protocol: tcp
