@@ -15,12 +15,13 @@ Example:
 host_ip = 192.168.1.1
 
 [VM1]
-;; GUEST_IP:GUEST_PORT->HOST_PORT
+;; GUEST_IP:GUEST_PORT->HOST_PORT|allow:ALLOWED_IP|protocol:tcp or udp
 rule1 = 192.168.122.224:443->443
-rule2 = 192.168.122.224:80->8080
+rule2 = 192.168.122.224:69->2269|protocol:udp
+rule1 = 192.168.122.224:5060->5060|allow:192.168.0.100|protocol:udp
 
 [VM2]
-rule1 = 192.168.122.225:22->2222
+rule1 = 192.168.122.225:22->2222|allow:192.168.0.0/24
 ```
 
 Install the QEMU hook: Place the compiled script in the libvirt hooks directory:

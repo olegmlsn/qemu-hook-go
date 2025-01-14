@@ -33,7 +33,7 @@ func main() {
 	}
 
 	for _, entry := range entries {
-		guestIP, guestPort, hostPort, allow, err := parseRule(entry)
+		guestIP, guestPort, hostPort, allow, protocol, err := parseRule(entry)
 		if err != nil {
 			fmt.Printf("Invalid rule '%s': %v\n", entry, err)
 			continue
@@ -41,12 +41,12 @@ func main() {
 
 		switch action {
 		case "stopped":
-			removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow)
+			removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
 		case "start":
-			addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow)
+			addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
 		case "reconnect":
-			removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow)
-			addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow)
+			removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
+			addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol)
 		default:
 			fmt.Printf("Invalid action: %s\n", action)
 		}
@@ -77,22 +77,28 @@ func parseINIConfig(path string) (string, map[string][]string, error) {
 	return hostIP, config, nil
 }
 
-func parseRule(rule string) (guestIP, guestPort, hostPort, allow string, err error) {
-	parts := strings.Split(rule, ",")
+func parseRule(rule string) (guestIP, guestPort, hostPort, allow, protocol string, err error) {
+	parts := strings.Split(rule, "|")
 	rulePart := parts[0]
 
 	guestIP, guestPort, hostPort, err = parseCoreRule(rulePart)
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", "", "", "", err
 	}
 
 	for _, option := range parts[1:] {
 		if strings.HasPrefix(option, "allow:") {
 			allow = strings.TrimPrefix(option, "allow:")
+		} else if strings.HasPrefix(option, "protocol:") {
+			protocol = strings.TrimPrefix(option, "protocol:")
 		}
 	}
 
-	return guestIP, guestPort, hostPort, allow, nil
+	if protocol == "" {
+		protocol = "tcp"
+	}
+
+	return guestIP, guestPort, hostPort, allow, protocol, nil
 }
 
 func parseCoreRule(rule string) (guestIP, guestPort, hostPort string, err error) {
@@ -115,10 +121,10 @@ func parseCoreRule(rule string) (guestIP, guestPort, hostPort string, err error)
 	return guestIP, guestPort, hostPort, nil
 }
 
-func addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow string) {
+func addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol string) {
 	commands := [][]string{
-		{"-I", "FORWARD", "-o", "virbr0", "-p", "tcp", "-d", guestIP, "--dport", guestPort, "-j", "ACCEPT"},
-		{"-t", "nat", "-I", "PREROUTING", "-p", "tcp", "-d", hostIP, "--dport", hostPort, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", guestIP, guestPort)},
+		{"-I", "FORWARD", "-o", "virbr0", "-p", protocol, "-d", guestIP, "--dport", guestPort, "-j", "ACCEPT"},
+		{"-t", "nat", "-I", "PREROUTING", "-p", protocol, "-d", hostIP, "--dport", hostPort, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", guestIP, guestPort)},
 	}
 
 	if allow != "" {
@@ -132,10 +138,10 @@ func addIptablesRule(hostIP, guestIP, guestPort, hostPort, allow string) {
 	}
 }
 
-func removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow string) {
+func removeIptablesRule(hostIP, guestIP, guestPort, hostPort, allow, protocol string) {
 	commands := [][]string{
-		{"-D", "FORWARD", "-o", "virbr0", "-p", "tcp", "-d", guestIP, "--dport", guestPort, "-j", "ACCEPT"},
-		{"-t", "nat", "-D", "PREROUTING", "-p", "tcp", "-d", hostIP, "--dport", hostPort, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", guestIP, guestPort)},
+		{"-D", "FORWARD", "-o", "virbr0", "-p", protocol, "-d", guestIP, "--dport", guestPort, "-j", "ACCEPT"},
+		{"-t", "nat", "-D", "PREROUTING", "-p", protocol, "-d", hostIP, "--dport", hostPort, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", guestIP, guestPort)},
 	}
 
 	if allow != "" {
