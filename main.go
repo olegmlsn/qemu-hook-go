@@ -28,6 +28,8 @@ type Rule struct {
 	Protocol   string `yaml:"protocol"`
 }
 
+const cfgFile = "/etc/libvirt/hooks/config.yaml"
+
 func main() {
 	if len(os.Args) < 3 {
 		fmt.Println("Usage: ./script <VM_NAME> <start|stopped|reconnect>")
@@ -37,7 +39,7 @@ func main() {
 	vmName := os.Args[1]
 	action := os.Args[2]
 
-	config, err := loadYAMLConfig("config.yaml")
+	config, err := loadYAMLConfig(cfgFile)
 	if err != nil {
 		fmt.Printf("Error loading YAML config: %v\n", err)
 		return
