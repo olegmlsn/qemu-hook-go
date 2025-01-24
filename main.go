@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -88,9 +89,11 @@ func loadYAMLConfig(path string) (*Config, error) {
 }
 
 func addIptablesRule(hostIP string, rule Rule) {
+	gp := strings.Split(rule.GuestPorts, ":")
+	guestPorts := strings.Join(gp, "-")
 	commands := [][]string{
 		{"-I", "FORWARD", "-o", "virbr0", "-p", rule.Protocol, "-d", rule.GuestIP, "--dport", rule.GuestPorts, "-j", "ACCEPT"},
-		{"-t", "nat", "-I", "PREROUTING", "-p", rule.Protocol, "-d", hostIP, "--dport", rule.HostPorts, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", rule.GuestIP, rule.GuestPorts)},
+		{"-t", "nat", "-I", "PREROUTING", "-p", rule.Protocol, "-d", hostIP, "--dport", rule.HostPorts, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", rule.GuestIP, guestPorts)},
 	}
 
 	if rule.Allow != "" {
@@ -105,9 +108,11 @@ func addIptablesRule(hostIP string, rule Rule) {
 }
 
 func removeIptablesRule(hostIP string, rule Rule) {
+	gp := strings.Split(rule.GuestPorts, ":")
+	guestPorts := strings.Join(gp, "-")
 	commands := [][]string{
 		{"-D", "FORWARD", "-o", "virbr0", "-p", rule.Protocol, "-d", rule.GuestIP, "--dport", rule.GuestPorts, "-j", "ACCEPT"},
-		{"-t", "nat", "-D", "PREROUTING", "-p", rule.Protocol, "-d", hostIP, "--dport", rule.HostPorts, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", rule.GuestIP, rule.GuestPorts)},
+		{"-t", "nat", "-D", "PREROUTING", "-p", rule.Protocol, "-d", hostIP, "--dport", rule.HostPorts, "-j", "DNAT", "--to", fmt.Sprintf("%s:%s", rule.GuestIP, guestPorts)},
 	}
 
 	if rule.Allow != "" {
